@@ -8,14 +8,17 @@
 
 #define LED_PIN 2
 
-#define NUMSLAVES 20
-esp_now_peer_info_t slaves[NUMSLAVES] = {};
-int SlaveCnt = 0;
+esp_now_peer_info_t slave;
+bool slaveFound = false;
 
 #define CHANNEL_MASTER 3
 #define CHANNEL_SLAVE 1
+
+//INVERSION?
+
 #define PRINTSCANRESULTS 0
 #define DATASIZE 3
+
 
 TFT_eSPI tft = TFT_eSPI();
 
@@ -32,9 +35,10 @@ void InitESPNow() {
 // Scan for slaves in AP mode
 void ScanForSlave() {
   int8_t scanResults = WiFi.scanNetworks();
-  //reset slaves
-  memset(slaves, 0, sizeof(slaves));
-  SlaveCnt = 0;
+   
+  memset(&slave, 0, sizeof(slave));
+  //memset(slave, 0, sizeof(slave));
+  
   Serial.println("");
   if (scanResults == 0) {
     Serial.println("No WiFi devices in AP Mode found");
@@ -59,18 +63,18 @@ void ScanForSlave() {
 
         if ( 6 == sscanf(BSSIDstr.c_str(), "%02x:%02x:%02x:%02x:%02x:%02x",  &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5] ) ) {
           for (int ii = 0; ii < 6; ++ii ) {
-            slaves[SlaveCnt].peer_addr[ii] = (uint8_t) mac[ii];
-          }
+            slave.peer_addr[ii] = (uint8_t) mac[ii];          }
         }
-        slaves[SlaveCnt].channel = CHANNEL_MASTER; // pick a channel
-        slaves[SlaveCnt].encrypt = 0; // no encryption
-        SlaveCnt++;
+        slave.channel = CHANNEL_MASTER; // pick a channel
+        slave.encrypt = 0; // no encryption
+        slaveFound = true;
+         break;
       }
     }
   }
 
-  if (SlaveCnt > 0) {
-    Serial.print(SlaveCnt); Serial.println(" Slave(s) found, processing..");
+  if (slaveFound) {
+    Serial.println(" Slave found, processing..");
   } else {
     Serial.println("No Slave Found, trying again.");
   }
@@ -81,97 +85,113 @@ void ScanForSlave() {
 
 // Check if the slave is already paired with the master.
 // If not, pair the slave with master
-void manageSlave() {
-  if (SlaveCnt > 0) {
-    for (int i = 0; i < SlaveCnt; i++) {
-      const esp_now_peer_info_t *peer = &slaves[i];
-      const uint8_t *peer_addr = slaves[i].peer_addr;
-      Serial.print("Processing: ");
-      for (int ii = 0; ii < 6; ++ii ) {
-        Serial.print((uint8_t) slaves[i].peer_addr[ii], HEX);
-        if (ii != 5) Serial.print(":");
-      }
-      Serial.print(" Status: ");
-      // check if the peer exists
-      bool exists = esp_now_is_peer_exist(peer_addr);
-      if (exists) {
-        // Slave already paired.
-        Serial.println("Already Paired");
-      } else {
+bool manageSlave() {
+  if (slaveFound) {
+
+    //deletePeer();
+
+    if ( esp_now_is_peer_exist(slave.peer_addr)) {
+
+      Serial.println("Already Paired");
+      return true;
+    }else {
         // Slave not paired, attempt pair
-        esp_err_t addStatus = esp_now_add_peer(peer);
+        esp_err_t addStatus = esp_now_add_peer(&slave);
+        //esp_err_t addStatus = esp_now_add_peer(slave);
         if (addStatus == ESP_OK) {
           // Pair success
           Serial.println("Pair success");
+          return true;
         } else if (addStatus == ESP_ERR_ESPNOW_NOT_INIT) {
           // How did we get so far!!
           Serial.println("ESPNOW Not Init");
+          return false;
         } else if (addStatus == ESP_ERR_ESPNOW_ARG) {
           Serial.println("Add Peer - Invalid Argument");
+          return false;
         } else if (addStatus == ESP_ERR_ESPNOW_FULL) {
           Serial.println("Peer list full");
+          return false;
         } else if (addStatus == ESP_ERR_ESPNOW_NO_MEM) {
           Serial.println("Out of memory");
+          return false;
         } else if (addStatus == ESP_ERR_ESPNOW_EXIST) {
           Serial.println("Peer Exists");
+          return true;
         } else {
           Serial.println("Not sure what happened");
+          return false;
         }
-        delay(100);
       }
-    }
   } else {
     // No slave found to process
     Serial.println("No Slave found to process");
+    return false;
   }
 }
 
+//void deletePeer() {
+//  esp_err_t delStatus = esp_now_del_peer(slave.peer_addr);
+//  Serial.print("Slave Delete Status: ");
+//  if (delStatus == ESP_OK) {
+//    // Delete success
+//    Serial.println("Success");
+//  } else if (delStatus == ESP_ERR_ESPNOW_NOT_INIT) {
+//    // How did we get so far!!
+//    Serial.println("ESPNOW Not Init");
+//  } else if (delStatus == ESP_ERR_ESPNOW_ARG) {
+//    Serial.println("Invalid Argument");
+//  } else if (delStatus == ESP_ERR_ESPNOW_NOT_FOUND) {
+//    Serial.println("Peer not found.");
+//  } else {
+//    Serial.println("Not sure what happened");
+//  }
+//}
 
-//uint8_t data[DATASIZE];
-//uint64_t pos=0;
+uint8_t data1[DATASIZE]={0,0,0};
 
-uint8_t data[DATASIZE];
+uint8_t data2[DATASIZE]={0,0,0};
 
 // send data
-void sendDataInit() {
-  sprintf((char *)data,"esp32 1 init");
-  for (int i = 0; i < SlaveCnt; i++) {
-    const uint8_t *peer_addr = slaves[i].peer_addr;
-    if (i == 0) { // print only for first slave
-      Serial.print("Sending: ");
-      Serial.println((char *)data);
-    }
-    esp_err_t result = esp_now_send(peer_addr, data, DATASIZE);
-    Serial.print("Send Status: ");
-    if (result == ESP_OK) {
-      Serial.println("Success");
-    } else if (result == ESP_ERR_ESPNOW_NOT_INIT) {
-      // How did we get so far!!
-      Serial.println("ESPNOW not Init.");
-    } else if (result == ESP_ERR_ESPNOW_ARG) {
-      Serial.println("Invalid Argument");
-    } else if (result == ESP_ERR_ESPNOW_INTERNAL) {
-      Serial.println("Internal Error");
-    } else if (result == ESP_ERR_ESPNOW_NO_MEM) {
-      Serial.println("ESP_ERR_ESPNOW_NO_MEM");
-    } else if (result == ESP_ERR_ESPNOW_NOT_FOUND) {
-      Serial.println("Peer not found.");
-    } else {
-      Serial.println("Not sure what happened");
-    }
-    delay(100);
-  }
-}
+//void sendDataInit() {
+//  sprintf((char *)data1,"esp32 1 init");
+//  for (int i = 0; i < SlaveCnt; i++) {
+//    const uint8_t *peer_addr = slaves[i].peer_addr;
+//    if (i == 0) { // print only for first slave
+//      Serial.print("Sending: ");
+//      Serial.println((char *)data1);
+//    }
+//    esp_err_t result = esp_now_send(peer_addr, data1, DATASIZE);
+//    Serial.print("Send Status: ");
+//    if (result == ESP_OK) {
+//      Serial.println("Success");
+//    } else if (result == ESP_ERR_ESPNOW_NOT_INIT) {
+//      // How did we get so far!!
+//      Serial.println("ESPNOW not Init.");
+//    } else if (result == ESP_ERR_ESPNOW_ARG) {
+//      Serial.println("Invalid Argument");
+//    } else if (result == ESP_ERR_ESPNOW_INTERNAL) {
+//      Serial.println("Internal Error");
+//    } else if (result == ESP_ERR_ESPNOW_NO_MEM) {
+//      Serial.println("ESP_ERR_ESPNOW_NO_MEM");
+//    } else if (result == ESP_ERR_ESPNOW_NOT_FOUND) {
+//      Serial.println("Peer not found.");
+//    } else {
+//      Serial.println("Not sure what happened");
+//    }
+//    delay(100);
+//  }
+//}
 
 void sendData() {
   //sprintf((char *)data,"Send commandes");
-  for (int i = 0; i < SlaveCnt; i++) {
-    const uint8_t *peer_addr = slaves[i].peer_addr;
-    if (i == 0) { // print only for first slave
-      Serial.print("Sending: ");
-      Serial.println((char *)data);
-    }
-    esp_err_t result = esp_now_send(peer_addr, data, DATASIZE);
+    const uint8_t *peer_addr = slave.peer_addr;
+    Serial.print("Sending: ");
+    Serial.println((char *)data1);
+    
+    esp_err_t result = esp_now_send(peer_addr, data1, DATASIZE);
+    //esp_err_t result = esp_now_send(peer_addr, &data1, DATASIZE);
+
     Serial.print("Send Status: ");
     if (result == ESP_OK) {
       Serial.println("Success");
@@ -189,10 +209,6 @@ void sendData() {
     } else {
       Serial.println("Not sure what happened");
     }
-    //delay(10);
-    //delay(100);
-
-  }
 }
 
 // callback when data is sent from Master to Slave
@@ -207,12 +223,21 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
 // callback when data is recv from Master
 void OnDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
   char macStr[18];
-  snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
+
+if (data[0] == 0 && data[1] == 0 && data[2] == 0 ){
+    digitalWrite(LED_PIN, LOW);
+    }
+
+   if (data[0] != 0 || data[1] != 0 || data[2] != 0 ){
+    digitalWrite(LED_PIN, HIGH);
+    } 
+
+
+snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
            mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
   Serial.print("\t\tLast Packet Recv from: "); Serial.println(macStr);
   Serial.print("\t\tLast Packet Recv Data: "); Serial.println((char *)data);
-  Serial.println("");
-  delay(10); // just a little bit
+  memcpy(data2, data, sizeof data);  
 }
 
 
@@ -251,40 +276,36 @@ class ManetteG
   {
 
     if (analogRead(pinG) == 0){
-    data[0]= 1;
+    data1[0]= 1;
     } 
 
     if (analogRead(pinG) > 0 && analogRead(pinG) <= 140){
-    data[0]= 2;
+    data1[0]= 2;
     } 
 
     if (analogRead(pinG) > 140 && analogRead(pinG) <= 160){
-    data[0]= 0;
+    data1[0]= 0;
     } 
 
     if (analogRead(pinG) > 160 && analogRead(pinG) <= 300){
-    data[0]= 3;
+    data1[0]= 3;
     } 
 
     if (analogRead(pinG) > 300 && analogRead(pinG) <= 480){
-    data[0]= 4;
+    data1[0]= 4;
     } 
 
     if (analogRead(pinG) > 480){
-    data[0]= 5;
+    data1[0]= 5;
     }
 
-    if (data[0] != previous){
+    if (data1[0] != previous){
       
-      previous = data[0];
+      previous = data1[0];
       sendData();
-      Serial.println(data[0]);
+      Serial.println(data1[0]);
 
-      }
-
-
-     
-     
+      }    
   }
 };
 
@@ -307,34 +328,34 @@ class ManetteD
   {
     
 if (analogRead(pinD) == 0){
-    data[1]= 1;
+    data1[1]= 1;
     } 
 
     if (analogRead(pinD) > 0 && analogRead(pinD) <= 140){
-    data[1]= 2;
+    data1[1]= 2;
     } 
 
     if (analogRead(pinD) > 140 && analogRead(pinD) <= 160){
-    data[1]= 0;
+    data1[1]= 0;
     } 
 
     if (analogRead(pinD) > 160 && analogRead(pinD) <= 300){
-    data[1]= 3;
+    data1[1]= 3;
     } 
 
     if (analogRead(pinD) > 300 && analogRead(pinD) <= 480){
-    data[1]= 4;
+    data1[1]= 4;
     } 
 
     if (analogRead(pinD) > 480){
-    data[1]= 5;
+    data1[1]= 5;
     } 
 
-       if (data[1] != previous){
+       if (data1[1] != previous){
       
-      previous = data[1];
+      previous = data1[1];
       sendData();
-      Serial.println(data[1]);
+      Serial.println(data1[1]);
 
       }
    }
@@ -349,59 +370,129 @@ class Klaxon
   Klaxon(int pin)
   {
   pinK = pin;
-  adcAttachPin(pinK);
-  analogSetPinAttenuation(pinK,ADC_11db);
+  pinMode(pinK, INPUT);
   previous = 0;
   }
  
   void Update()
   {
-    if (analogRead(pinK) != 511){
-    data[2]= 1;
+    if (digitalRead(pinK) != 1){
+    data1[2]= 1;
     } 
     else 
     {
-      data[2]= 0;
+      data1[2]= 0;
       }
 
-         if (data[2] != previous){
+         if (data1[2] != previous){
       
-      previous = data[2];
+      previous = data1[2];
       sendData();
-      Serial.println(data[2]);
+//      Serial.print("klaxon");
+//      Serial.println(data[2]);
       }
 
        }
 };
 
-
-
-
-//ManetteG manetteG(34);
-//ManetteD manetteD(35);
-//Klaxon klaxon(32);
-
-ManetteG manetteG(32);
-ManetteD manetteD(33);
-Klaxon klaxon(13);
-
-//int8_t data[DATASIZE];
-
-void setup() {
-  Serial.begin(115200);
+class Screen
+{
+  int collision;
+  int motorD;
+  int motorG;
+  int distance;
+  int degres;
+ 
+  public:
+  Screen()
+  {
   tft.init();
   tft.setRotation(0);
   tft.fillScreen(TFT_BLACK);
 
-  tft.setCursor(0, 0);
-  tft.setTextColor(TFT_WHITE);
-  tft.setTextWrap(true);
-  tft.print("STARTING...");
+  tft.drawLine(0, 65, 128, 65, TFT_WHITE);
+  tft.drawCircle(64,0,64,TFT_GREEN);
+
+  //tft.drawRect(0,0,50,50,TFT_RED);
+
+  
+  
+  
+  }
+ 
+  void Update()
+  {
+
+//tft.setCursor(6, 0);
+//  tft.setTextColor(TFT_WHITE);
+//  tft.setTextWrap(true);
+//  tft.print("STARTING...");
+//
+//  //tft.fillRect(0,0,50,50,TFT_BLUE);
+//
+
+
+      Serial.print("collision: ");
+      Serial.println(data2[0]);
+
+
+      Serial.print("degres: ");
+      Serial.println(data2[1]);
+
+      Serial.print("distance: ");
+      Serial.println(data2[2]);
+
+
+  
+   }
+};
+
+
+
+
+
+//uint8_t MAC_array[6];
+//char MAC_char[18];
+//
+//
+//    WiFi.macAddress(MAC_array);
+//    for (int i = 0; i < sizeof(MAC_array); ++i){
+//      sprintf(MAC_char,"%s%02x:",MAC_char,MAC_array[i]);
+//    }
+// 
+//    Serial.println(MAC_char);
+
+//https://www.arduino.cc/en/Reference/WiFiMACAddress
+
+//  WiFi.macAddress(mac);
+//  Serial.print("MAC: ");
+//  Serial.print(mac[5],HEX);
+//  Serial.print(":");
+//  Serial.print(mac[4],HEX);
+//  Serial.print(":");
+//  Serial.print(mac[3],HEX);
+//  Serial.print(":");
+//  Serial.print(mac[2],HEX);
+//  Serial.print(":");
+//  Serial.print(mac[1],HEX);
+//  Serial.print(":");
+//  Serial.println(mac[0],HEX);
+
+
+ManetteG manetteG(34);
+ManetteD manetteD(35);
+Klaxon klaxon(32);
+Screen screen;
+
+void setup() {
+  Serial.begin(115200);
+  
 
   analogReadResolution(9);
   analogSetWidth(9); 
 
   pinMode(LED_PIN, OUTPUT);
+  
   //Set device in STA mode to begin with
   WiFi.mode(WIFI_MODE_APSTA);
   Serial.println("Telecommande");
@@ -419,15 +510,23 @@ void setup() {
 
   ScanForSlave();
 
-  if (SlaveCnt > 0) { // check if slave channel is defined
+  if (slaveFound) { 
+
+      if (manageSlave()) { 
+      
+
+    Serial.println("Pairing OK");
+    
+    // check if slave channel is defined
     // `slave` is defined
     // Add slave as peer if it has not been added already
-    manageSlave();
-    sendDataInit();
+    
+  }else{
+    Serial.println("Slave pair failed!");
+    
+    }
 
-  }
-
-  
+  } 
 }
 
 void loop() {
@@ -435,5 +534,5 @@ void loop() {
 manetteG.Update();
 manetteD.Update();
 klaxon.Update();
-
+screen.Update();
 }
