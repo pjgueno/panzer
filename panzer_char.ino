@@ -1,35 +1,38 @@
 #include <esp_now.h>
 #include <WiFi.h>
-#include <Servo.h>
+#include <esp32-hal-ledc.h>
 
 #define WIFI_CHANNEL 1
+
+// pas d'inversion: les deux écoutent sur un canal et émettent sur un autre sans croisement...?
+
 #define LED_PIN 2
 
-Servo servo;
+uint8_t remoteMac[] = {0xB4,0xE6,0x2D,0x99,0x09,0x75};
 
-uint8_t masterDeviceMac[] = {0xB4,0xE6,0x2D,0x99,0x09,0x75};
-//0x4b
-esp_now_peer_info_t master;
-const esp_now_peer_info_t *masterNode = &master;
+esp_now_peer_info_t remote;
+const esp_now_peer_info_t *remoteNode = &remote;
 const byte maxDataFrameSize = 3;
 uint8_t dataToSend[maxDataFrameSize]={0,0,0};
 uint8_t dataRecved[maxDataFrameSize]={0,0,0};
 
-//changer valeurs ici
-
-int freq = 20000;
+int freq = 30000;
 int ledChannelA = 0;
 int ledChannelB = 1;
 int resolution = 8; 
 
-//conflit avec channel?
-//freq to high?
+int servoChannel = 2;
+int servofreq = 50;
+int servoResolution = 16; 
+
+int MIN_PULSE_WIDTH = 900;
+int MAX_PULSE_WIDTH = 2500;
 
 int posDegrees;
 bool up;
 
 bool sent;
-int delaiServo = 1000;
+int delaiServo = 10;
 unsigned long previousMillisServo;
 
 class MoteurG
@@ -45,16 +48,15 @@ class MoteurG
   pin1G = pin2;
   pin2G = pin3;
 
-  pinMode(pinEG, OUTPUT);
   pinMode(pin1G, OUTPUT);
   pinMode(pin2G, OUTPUT);
 
-  ledcSetup(ledChannelA, freq, resolution);
-  ledcAttachPin(pinEG, ledChannelA);
+  ledcSetup(ledChannelB, freq, resolution);
+  ledcAttachPin(pinEG, ledChannelB);
 
   digitalWrite(pin1G, LOW); 
   digitalWrite(pin2G, LOW);
-  //ledcWrite(ledChannelA, 0);
+  ledcWrite(ledChannelB, 0);
   }
  
   void Update()
@@ -63,38 +65,38 @@ class MoteurG
     if (dataRecved[0] == 0){
         digitalWrite(pin1G, LOW); 
         digitalWrite(pin2G, LOW);
-        ledcWrite(ledChannelA, 0);
+        ledcWrite(ledChannelB, 0);
       }
 
         if (dataRecved[0] == 1){
         digitalWrite(pin1G, LOW); 
         digitalWrite(pin2G, HIGH);
-        ledcWrite(ledChannelA, 255);
+        ledcWrite(ledChannelB, 255);
       }  
 
         if (dataRecved[0] == 2){
         digitalWrite(pin1G, LOW); 
         digitalWrite(pin2G, HIGH);
-        ledcWrite(ledChannelA, 200);
+        ledcWrite(ledChannelB, 200);
       }  
 
 
         if (dataRecved[0] == 3){
         digitalWrite(pin1G, HIGH); 
         digitalWrite(pin2G, LOW);
-        ledcWrite(ledChannelA, 190);
+        ledcWrite(ledChannelB, 190);
       }  
 
          if (dataRecved[0] == 4){
         digitalWrite(pin1G, HIGH); 
         digitalWrite(pin2G, LOW);
-        ledcWrite(ledChannelA, 220);
+        ledcWrite(ledChannelB, 220);
       }  
 
               if (dataRecved[0] == 5){
         digitalWrite(pin1G, HIGH); 
         digitalWrite(pin2G, LOW);
-        ledcWrite(ledChannelA, 255);
+        ledcWrite(ledChannelB, 255);
       }  
   }
 };
@@ -114,16 +116,15 @@ class MoteurD
   pin1D = pin2;
   pin2D = pin3;
 
-  pinMode(pinED, OUTPUT);
   pinMode(pin1D, OUTPUT);
   pinMode(pin2D, OUTPUT);
 
-  ledcSetup(ledChannelB, freq, resolution);
-  ledcAttachPin(pinED, ledChannelB);
+  ledcSetup(ledChannelA, freq, resolution);
+  ledcAttachPin(pinED, ledChannelA);
 
   digitalWrite(pin1D, LOW); 
   digitalWrite(pin2D, LOW);
-  //ledcWrite(ledChannelB, 0);
+  ledcWrite(ledChannelA, 0);
   }
  
   void Update()
@@ -132,38 +133,38 @@ class MoteurD
     if (dataRecved[1] == 0){
         digitalWrite(pin1D, LOW); 
         digitalWrite(pin2D, LOW);
-        ledcWrite(ledChannelB, 0);
+        ledcWrite(ledChannelA, 0);
       }
 
         if (dataRecved[1] == 1){
         digitalWrite(pin1D, LOW); 
         digitalWrite(pin2D, HIGH);
-        ledcWrite(ledChannelB, 255);
+        ledcWrite(ledChannelA, 255);
       }  
 
         if (dataRecved[1] == 2){
         digitalWrite(pin1D, LOW); 
         digitalWrite(pin2D, HIGH);
-        ledcWrite(ledChannelB, 200);
+        ledcWrite(ledChannelA, 200);
       }  
 
 
         if (dataRecved[1] == 3){
         digitalWrite(pin1D, HIGH); 
         digitalWrite(pin2D, LOW);
-        ledcWrite(ledChannelB, 190);
+        ledcWrite(ledChannelA, 190);
       }  
 
               if (dataRecved[1] == 4){
         digitalWrite(pin1D, HIGH); 
         digitalWrite(pin2D, LOW);
-        ledcWrite(ledChannelB, 220);
+        ledcWrite(ledChannelA, 220);
       }  
 
               if (dataRecved[1] == 5){
         digitalWrite(pin1D, HIGH); 
         digitalWrite(pin2D, LOW);
-        ledcWrite(ledChannelB, 255);
+        ledcWrite(ledChannelA, 255);
       }  
   }
 };
@@ -193,14 +194,6 @@ class Klaxon
         }
   }
 };
-
-
-
-
-
-
-
-
 
 
 
@@ -267,10 +260,13 @@ if (first && second){
       Serial.print("Sending: ");
      for (int i = 0; i < 3; i++) {
         Serial.print(dataToSend[i]);
+                    if (i<2){
+            Serial.print(";");
+            }
         }
         Serial.println();
 
-    if(esp_now_send(master.peer_addr, dataToSend, maxDataFrameSize) == ESP_OK){
+    if(esp_now_send(remote.peer_addr, dataToSend, maxDataFrameSize) == ESP_OK){
     Serial.println("Success");
     }
     else
@@ -286,7 +282,6 @@ if (first && second){
 
 class Radar
 {
-  //Servo servo;
   int pinS;
   int pinT;
   int pinE;
@@ -298,77 +293,98 @@ class Radar
   bool echo; 
   unsigned long previousMicros;
   unsigned long previousMillis;
-    
+
   public:
-  Radar(int pin1, int pin2)
+  Radar(int pin1, int pin2, int pin3)
   {
-    pinT = pin1;
-  pinE = pin2;
+  pinS = pin1;
+  pinT = pin2;
+  pinE = pin3;
   pinMode(pinT, OUTPUT); 
   pinMode(pinE, INPUT); 
+
+  ledcSetup(servoChannel,servofreq,servoResolution);
+  ledcAttachPin(pinS,servoChannel);
+  
   trig = false;
   echo = false;
   previous1 = 0;
   previous2 = 0;
   previousMicros = 0;
+  
   }
+
+
+  int pulseWidth(int angle)
+{
+  int pulse_wide, analog_value;
+  pulse_wide = map(angle, 0, 180, MIN_PULSE_WIDTH, MAX_PULSE_WIDTH);
+  analog_value = int(float(pulse_wide) / 1000000 * servofreq * 65536);
+  return analog_value;
+}
+
  
-  bool Update(int deg)
+  bool Update(int degree)
   {
-
-if (trig == false && echo == false){
-      servo.write(deg);
-      dataToSend[1] = deg;
-      trig = true;
-      digitalWrite(pinT, LOW);
-      previousMicros = micros();
-      }
-
-      if (trig == true && echo == false && (micros() - previousMicros >= 2)){
-      digitalWrite(pinT, HIGH);
-      trig = false;
-      echo = true;
-      previousMicros = micros();
-      }
-
-      if (trig == false && echo == true && (micros() - previousMicros >= 10)){
-      digitalWrite(pinT, LOW);
-      duration = pulseIn(pinE, HIGH,5000UL);
-      
-      distance= duration*0.034/2;
-      dataToSend[2] = distance;
-      echo = false;
-
-    if (dataToSend[1] != previous1 || dataToSend[2] != previous2 ){
-      
-      previous1 = dataToSend[1];
-      previous2 = dataToSend[2];
-
-    sent = false;
-      
-
-    Serial.print("Sending: ");
-    for (int i = 0; i < 3; i++) {
-        Serial.print(dataToSend[i]);
-        }
-        Serial.println();
-
-    if(esp_now_send(master.peer_addr, dataToSend, maxDataFrameSize) == ESP_OK){
-    Serial.println("Success");
-    }
-    else
-    {
-    Serial.println("Failed!");
-    }
-      }   
-
-      return true;
-       }
+   
+    if (trig == false && echo == false){
+          ledcWrite(servoChannel, pulseWidth(degree)); 
+          dataToSend[1] = degree;
+          trig = true;
+          digitalWrite(pinT, LOW);
+          previousMicros = micros();
+          }
     
-    return false;
+    if (trig == true && echo == false && (micros() - previousMicros >= 2)){
+          digitalWrite(pinT, HIGH);
+          trig = false;
+          echo = true;
+          previousMicros = micros();
+          }
+    
+   if (trig == false && echo == true && (micros() - previousMicros >= 10)){
+          digitalWrite(pinT, LOW);
+          duration = pulseIn(pinE, HIGH,14705UL); //2 x 2.5 m = 5 m
+          //duration = pulseIn(pinE, HIGH,5000UL);
+          
+          distance= duration*0.034/2;
 
-  }
-};
+          dataToSend[2] = distance;
+          echo = false;
+          
+        if (dataToSend[1] != previous1 || dataToSend[2] != previous2 ){
+          
+          previous1 = dataToSend[1];
+          previous2 = dataToSend[2];
+
+        sent = false;
+      
+        Serial.print("Sending: ");
+        for (int i = 0; i < 3; i++) {
+            Serial.print(dataToSend[i]);
+           if (i<2){
+            Serial.print(";");
+            }
+            }
+            Serial.println();
+    
+        if(esp_now_send(remote.peer_addr, dataToSend, maxDataFrameSize) == ESP_OK){
+        Serial.println("Success");
+          sent = true;
+          previousMillisServo = millis();
+        return true; //VOIR SI TRUE DANS TOUS LES CAS?
+        }
+        else
+        {
+        Serial.println("Failed!");
+        }
+          }   
+           }
+        
+        return false;
+    
+      }
+    };
 
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status){
   char macStr[18];
@@ -376,8 +392,6 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status){
            mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
   Serial.print("Last Packet Sent to: "); Serial.println(macStr);
   Serial.print("Last Packet Send Status: "); Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
-  sent = true;
-  previousMillisServo = millis();
 }
 
 void OnDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len){
@@ -394,33 +408,25 @@ Serial.println();
   memcpy(dataRecved, data, sizeof data);
 }
 
-
-MoteurG moteurG(16,17,18);
-MoteurD moteurD(19,21,22);
+MoteurG moteurG(15,16,17);
+MoteurD moteurD(14,26,27);
 Klaxon klaxon(23);
-Collision collision (25);
-Radar radar(26,27);
+Collision collision (34);
+Radar radar(22,18,19);
 
 void setup()
 {
   Serial.begin(115200);
   Serial.println("Panzer");
 
-servo.attach(
-        33, 
-        Servo::CHANNEL_NOT_ATTACHED, 
-        0,
-        180
-);
-
   posDegrees = 0;
+  previousMillisServo = millis();
   sent = true;
-  previousMillisServo = 0;
   
   pinMode(LED_PIN, OUTPUT);
 
-  WiFi.mode(WIFI_AP); 
-  Serial.print("AP MAC: "); Serial.println(WiFi.softAPmacAddress());
+  WiFi.mode(WIFI_STA); 
+  Serial.print("STA MAC PANZER: "); Serial.println(WiFi.macAddress());
   WiFi.disconnect();
   if(esp_now_init() == ESP_OK)
   {
@@ -432,19 +438,17 @@ servo.attach(
     ESP.restart();
   }
 
-  //Add the master node to this slave node
-  memcpy( &master.peer_addr, &masterDeviceMac, 6 );
-  master.channel = WIFI_CHANNEL;
-  master.encrypt = 0;
-  master.ifidx = ESP_IF_WIFI_AP;
-  //Add the remote master node to this slave node
-  if( esp_now_add_peer(masterNode) == ESP_OK)
+  memcpy( &remote.peer_addr, &remoteMac, 6 );
+  remote.channel = WIFI_CHANNEL;
+  remote.encrypt = 0;
+
+  if( esp_now_add_peer(remoteNode) == ESP_OK)
   {
-    Serial.println("Added Master Node!");
+    Serial.println("Added Remote Node!");
   }
   else
   {
-    Serial.println("Master Node could not be added...");
+    Serial.println("Remote Node could not be added...");
   }
   
   esp_now_register_recv_cb(OnDataRecv);
@@ -458,41 +462,59 @@ void loop()
   moteurG.Update();
   moteurD.Update();
   klaxon.Update();
-  
-  //collision.Update();
 
-//  if (sent = true && millis() - previousMillisServo >= delaiServo){
-//
-//if (posDegrees == 0){
+
+  collision.Update();
+
+  //ajouter sent == true
+
+  //CONTROLER SEULEMENTLES PULSE AVEC LE RADAR  
+
+ if (sent == true && millis() - previousMillisServo >= delaiServo){
+  
+ //sent = false;
+ 
+if (posDegrees == 0){
+  
+  up = true;
+  if (radar.Update(posDegrees)){
+      posDegrees += 1;
+    }
+  }
+
+if (posDegrees > 0 && posDegrees < 180 && up == true){
+  if (radar.Update(posDegrees)){
+      posDegrees += 1;
+    }
+  }
+
+  if (posDegrees == 180){
+  up = false;
+  if (radar.Update(posDegrees)){
+      posDegrees -= 1;
+    }  
+    }
+
+  if (posDegrees > 0 && posDegrees < 180 && up == false){
+  if (radar.Update(posDegrees)){
+      posDegrees -= 1;
+    }
+  } 
+
+ // previousMillisServo = millis();
+//  }
 //  
-//  up = true;
-//  if (radar.Update(posDegrees)){
-//      posDegrees += 1;
+//  else if(sent == false && millis() - previousMillisServo >= delaiServo){
+//    if (!radar.Update(posDegrees)){
+//      Serial.println("Radar work in progress...");
 //    }
-//  }
-//
-//if (posDegrees > 0 && posDegrees < 180 && up == true){
-//  if (radar.Update(posDegrees)){
-//      posDegrees += 1;
-//    }
-//  }
-//
-//  if (posDegrees == 180){
-//  up = false;
-//  if (radar.Update(posDegrees)){
-//      posDegrees -= 1;
-//    }  
-//    }
-//
-//  if (posDegrees > 0 && posDegrees < 180 && up == false){
-//  if (radar.Update(posDegrees)){
-//      posDegrees -= 1;
-//    }
-//  } 
-//  }else{
-//    Serial.println("Waiting...");
-//    }
+    }else{
+    Serial.println("Waiting...");
+    }
   //delay(1000);
+
+  
+    delay(10); //A VOIR
 }
 
 

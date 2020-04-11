@@ -1,6 +1,4 @@
-/*
-    Compiled for the NODEMCU-32S
- */
+//MASTER
 
 #include <esp_now.h>
 #include <WiFi.h>
@@ -12,15 +10,22 @@
 #define WIFI_CHANNEL 1
 
 
-esp_now_peer_info_t slave;
+// pas d'inversion: les deux écoutent sur un canal et émettent sur un autre sans croisement...?
+
+
+esp_now_peer_info_t panzer;
 TFT_eSPI tft = TFT_eSPI();
 
+#define LED_PIN 2
 
-uint8_t remoteMac[] = {0xB4,0xE6,0x2D,0x98,0xA6,0x12};
+
+uint8_t panzerMac[] = {0xB4,0xE6,0x2D,0x98,0xA6,0x11};
 const uint8_t maxDataFrameSize=3;
-const esp_now_peer_info_t *peer = &slave;
+const esp_now_peer_info_t *panzerNode = &panzer;
 uint8_t dataToSend[maxDataFrameSize]={0,0,0};
 uint8_t dataRecved[maxDataFrameSize]={0,0,0};
+
+volatile bool pressed = false;
 
 
 class ManetteG
@@ -72,11 +77,14 @@ class ManetteG
       
       for (int i = 0; i < 3; i++) {
         Serial.print(dataToSend[i]);
+                    if (i<2){
+            Serial.print(";");
+            }
         }
         Serial.println();
 
 
-    if( esp_now_send(slave.peer_addr, dataToSend, maxDataFrameSize) == ESP_OK){
+    if( esp_now_send(panzer.peer_addr, dataToSend, maxDataFrameSize) == ESP_OK){
     Serial.println("Success");
     }
     else
@@ -136,11 +144,14 @@ if (analogRead(pinD) == 0){
       Serial.print("Sending: ");
             for (int i = 0; i < 3; i++) {
         Serial.print(dataToSend[i]);
+                    if (i<2){
+            Serial.print(";");
+            }
         }
         Serial.println();
 
 
-    if( esp_now_send(slave.peer_addr, dataToSend, maxDataFrameSize) == ESP_OK){
+    if( esp_now_send(panzer.peer_addr, dataToSend, maxDataFrameSize) == ESP_OK){
     Serial.println("Success");
     }
     else
@@ -152,6 +163,8 @@ if (analogRead(pinD) == 0){
    }
 };
 
+
+
 class Klaxon
 {
   int pinK;
@@ -161,13 +174,14 @@ class Klaxon
   Klaxon(int pin)
   {
   pinK = pin;
-  pinMode(pinK, INPUT);
+  pinMode(pinK, INPUT_PULLDOWN);
   previous = 0;
   }
  
   void Update()
   {
-    if (digitalRead(pinK) != 1){
+    //Serial.println(pressed);
+    if (digitalRead(pinK) != HIGH){
     dataToSend[2]= 1;
     } 
     else 
@@ -176,16 +190,18 @@ class Klaxon
       }
 
          if (dataToSend[2] != previous){
-      
       previous = dataToSend[2];
     Serial.print("Sending: ");
           for (int i = 0; i < 3; i++) {
         Serial.print(dataToSend[i]);
+                    if (i<2){
+            Serial.print(";");
+            }
         }
         Serial.println();
 
 
-    if( esp_now_send(slave.peer_addr, dataToSend, maxDataFrameSize) == ESP_OK){
+    if( esp_now_send(panzer.peer_addr, dataToSend, maxDataFrameSize) == ESP_OK){
     Serial.println("Success");
     }
     else
@@ -215,10 +231,6 @@ class Screen
 
   }
 
-
-
-
- 
   void Update(uint8_t int1,uint8_t int2,uint8_t int3){
 
 //tft.setCursor(6, 0);
@@ -272,6 +284,21 @@ snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
 }
 
 
+//void configDeviceAP() {
+//  String Prefix = "ESPNOW:";
+//  String Mac = WiFi.macAddress();
+//  String SSID = Prefix + Mac;
+//  String Password = "123456789";
+//  bool result = WiFi.softAP(SSID.c_str(), Password.c_str(), WIFI_CHANNEL_PR, false,1);
+//  if (!result) {
+//    Serial.println("AP Config failed.");
+//  } else {
+//    Serial.println("AP Config Success. Broadcasting with AP: " + String(SSID));
+//  }
+//}
+
+
+
 
 
 
@@ -287,8 +314,10 @@ void setup()
   Serial.begin(115200);
   Serial.println("Telecommande");
 
+  pinMode(LED_PIN, OUTPUT);
+
   tft.init();
-  tft.setRotation(0);
+  tft.setRotation(2);
   tft.fillScreen(TFT_BLACK);
   tft.drawLine(0, 65, 128, 65, TFT_WHITE);
   tft.drawCircle(64,0,64,TFT_GREEN);
@@ -297,7 +326,9 @@ void setup()
   analogSetWidth(9); 
 
   WiFi.mode(WIFI_STA);
-  Serial.print("STA MAC: "); Serial.println(WiFi.macAddress());
+  //configDeviceAP();
+  Serial.print("STA MAC REMOTE: "); Serial.println(WiFi.macAddress());
+
 
   WiFi.disconnect();
   
@@ -312,22 +343,24 @@ void setup()
   }
   
   
-  memcpy( &slave.peer_addr, &remoteMac, 6 );
-  slave.channel = WIFI_CHANNEL;
-  slave.encrypt = 0;
-  if( esp_now_add_peer(peer) == ESP_OK)
+  memcpy( &panzer.peer_addr, &panzerMac, 6 );
+  panzer.channel = WIFI_CHANNEL;
+  panzer.encrypt = 0;
+
+  
+  if( esp_now_add_peer(panzerNode) == ESP_OK)
   {
-    Serial.println("Added Peer!");
+    Serial.println("Added Panzer Node!");
+  }
+  else
+  {
+    Serial.println("Panzer Node could not be added...");
   }
 
   esp_now_register_send_cb(OnDataSent);
   esp_now_register_recv_cb(OnDataRecv);
+  
 }
-
-
-
-
-
 
 void loop()
 {
@@ -337,6 +370,6 @@ manetteD.Update();
 klaxon.Update();
 screen.Update(dataRecved[0],dataRecved[1],dataRecved[2]);
   
-  //delay(1000);
+  delay(100);
 }
 
