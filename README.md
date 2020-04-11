@@ -8,7 +8,3 @@ The panzer has also a sonar.
 
 Everything is written as "object oriented".
 
-Different versions were implemented. The work is not over yet…
-
-An issue with the enable pins prevent the control of the speed.
-
