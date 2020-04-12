@@ -32,7 +32,7 @@ int posDegrees;
 bool up;
 
 bool sent;
-int delaiServo = 10;
+int delaiServo = 50;
 unsigned long previousMillisServo;
 
 class MoteurG
@@ -245,15 +245,16 @@ class Collision
     }
     }
 
-if (first && second){
+if (first && second && millis() - previousMillis < duree){
     dataToSend[0]= 1;
     Serial.println("collision");
-    if (millis() - previousMillis >= duree){
-    first = false;
-    second = false;
-  }
   }
 
+if (first && second && millis() - previousMillis >= duree){
+    first = false;
+    second = false;
+    dataToSend[0]= 0;
+}
 
  if (dataToSend[0] != previous){
       previous = dataToSend[0];
@@ -344,7 +345,8 @@ class Radar
     
    if (trig == false && echo == true && (micros() - previousMicros >= 10)){
           digitalWrite(pinT, LOW);
-          duration = pulseIn(pinE, HIGH,14705UL); //2 x 2.5 m = 5 m
+          //duration = pulseIn(pinE, HIGH,14705UL); //2 x 2.5 m = 5 m
+          duration = pulseIn(pinE, HIGH,5882UL);     //2 x 1 m = 2 m
           //duration = pulseIn(pinE, HIGH,5000UL);
           
           distance= duration*0.034/2;
@@ -400,15 +402,17 @@ snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
            mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
   Serial.print("\t\tLast Packet Recv from: "); Serial.println(macStr);
   Serial.print("\t\tLast Packet Recv Data: "); 
-  for(int i = 0; i < 3; i++)
-{
+  for(int i = 0; i < 3; i++){
   Serial.print(data[i]);
+  if (i<2){
+            Serial.print(";");
+            }
 }
 Serial.println();
   memcpy(dataRecved, data, sizeof data);
 }
 
-MoteurG moteurG(15,16,17);
+MoteurG moteurG(21,16,17);
 MoteurD moteurD(14,26,27);
 Klaxon klaxon(23);
 Collision collision (34);
@@ -514,7 +518,7 @@ if (posDegrees > 0 && posDegrees < 180 && up == true){
   //delay(1000);
 
   
-    delay(10); //A VOIR
+    //delay(10); //A VOIR
 }
 
 

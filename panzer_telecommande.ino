@@ -215,25 +215,135 @@ class Klaxon
 
 class Screen
 {
-  int collision;
-  int motorD;
-  int motorG;
-  int distance;
-  int degres;
- 
+
   public:
   Screen()
   {
 
-
-
-  //tft.drawRect(0,0,50,50,TFT_RED);
-
   }
 
-  void Update(uint8_t int1,uint8_t int2,uint8_t int3){
+  void Update(uint8_t int1,uint8_t int2,uint8_t int3,uint8_t int4,uint8_t int5){
 
-//tft.setCursor(6, 0);
+  
+tft.setCursor(0, 0);
+tft.setTextSize(3);
+if (int1 == 1){
+  tft.setTextColor(TFT_WHITE,TFT_RED);
+  tft.print(" ALARM ");
+  }
+if (int1 == 0){
+  tft.setTextColor(TFT_BLACK,TFT_BLACK);
+  tft.print("             ");
+  }
+
+if (int3 == 0 && int3 >= 100){
+
+}
+
+if (int3 != 0){
+  
+  int distance = int(map(int3, 0, 100, 0, 64));
+
+  int coox1 = 63 + distance*cos(radians(-int2));
+  int cooy1 = 159 + distance*sin(radians(-int2));
+  tft.drawLine(63, 159,coox1,cooy1, TFT_GREEN);
+
+  int coox2 = 63 + 64*cos(radians(-int2));
+  int cooy2 = 159 + 64*sin(radians(-int2));
+  tft.drawLine(coox1,cooy1,coox2,cooy2, TFT_RED);
+  
+  }else{
+
+    int coox = 63 + 64*cos(radians(-int2));
+    int cooy = 159 + 64*sin(radians(-int2));
+
+tft.drawLine(63, 159,coox,cooy, TFT_GREEN);
+    }
+
+//tft.setCursor(0,60 );
+//tft.setTextSize(1);
+//tft.setTextColor(TFT_WHITE,TFT_BLACK);
+//tft.print("Distance = ");
+//tft.print(int3);
+//
+//if (int3!=0){
+//
+//
+//int coox2 = coox + distance *cos(radians(int2-180));
+//int cooy2 = cooy + distance *sin(radians(int2-180));
+//
+//tft.drawLine(coox, cooy,coox2,cooy2, TFT_RED);
+//  }
+//
+
+
+
+
+
+
+
+
+
+
+tft.setCursor(0,40 );
+tft.setTextSize(3);
+switch (int4) {
+  case 0:
+    tft.setTextColor(TFT_BLACK,TFT_WHITE);
+    tft.print("N");
+    break;
+  case 1:
+    tft.setTextColor(TFT_BLACK,TFT_RED);
+    tft.print("2");
+    break;
+  case 2:
+    tft.setTextColor(TFT_BLACK,TFT_RED);
+    tft.print("1");
+    break;
+  case 3:
+    tft.setTextColor(TFT_BLACK,TFT_GREEN);
+    tft.print("1");
+    break;
+  case 4:
+    tft.setTextColor(TFT_BLACK,TFT_GREEN);
+    tft.print("2");
+    break;
+  case 5:
+    tft.setTextColor(TFT_BLACK,TFT_GREEN);
+    tft.print("3");
+    break;
+}
+
+tft.setCursor(110, 40);
+switch (int5) {
+  case 0:
+    tft.setTextColor(TFT_BLACK,TFT_WHITE);
+    tft.print("N");
+    break;
+  case 1:
+    tft.setTextColor(TFT_BLACK,TFT_RED);
+    tft.print("2");
+    break;
+  case 2:
+    tft.setTextColor(TFT_BLACK,TFT_RED);
+    tft.print("1");
+    break;
+  case 3:
+    tft.setTextColor(TFT_BLACK,TFT_GREEN);
+    tft.print("1");
+    break;
+  case 4:
+    tft.setTextColor(TFT_BLACK,TFT_GREEN);
+    tft.print("2");
+    break;
+  case 5:
+    tft.setTextColor(TFT_BLACK,TFT_GREEN);
+    tft.print("3");
+    break;
+}
+
+
+
 //  tft.setTextColor(TFT_WHITE);
 //  tft.setTextWrap(true);
 //  tft.print("STARTING...");
@@ -277,6 +387,9 @@ snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
   Serial.print("\t\tLast Packet Recv Data: ");
         for (int i = 0; i < 3; i++) {
         Serial.print(data[i]);
+          if (i<2){
+            Serial.print(";");
+            }
         }
         Serial.println();
 
@@ -317,10 +430,10 @@ void setup()
   pinMode(LED_PIN, OUTPUT);
 
   tft.init();
-  tft.setRotation(2);
+  tft.setRotation(0);
   tft.fillScreen(TFT_BLACK);
-  tft.drawLine(0, 65, 128, 65, TFT_WHITE);
-  tft.drawCircle(64,0,64,TFT_GREEN);
+  //tft.drawLine(0, 90, 128, 90, TFT_WHITE);
+  tft.drawCircle(63,159,64,TFT_GREEN);
   
   analogReadResolution(9);
   analogSetWidth(9); 
@@ -368,7 +481,7 @@ void loop()
 manetteG.Update();
 manetteD.Update();
 klaxon.Update();
-screen.Update(dataRecved[0],dataRecved[1],dataRecved[2]);
+screen.Update(dataRecved[0],dataRecved[1],dataRecved[2],dataToSend[0],dataToSend[1]);
   
   delay(100);
 }
